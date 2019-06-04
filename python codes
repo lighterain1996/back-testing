@@ -1,0 +1,233 @@
+#Scarlett Liu
+#This task will implement a backtesting program. The objective 
+#of this program is to test some technical analysis (i.e., charting) 
+#trading strategies. Additionally, it will develop functions to analyze some 
+#historical asset (e.g., stock) prices or other metrics, 
+#and create some trading rule based on those metrics. 
+#Next, it will write a functon to calculate returns using this trading rule.
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from Monte_Carlo_Simulation import MCStockSimulator
+
+def create_bollinger_bands(df,window = 21, no_of_std = 1, column_name = ''):
+    '''This function will create Bollinger bands. '''
+    
+    #create an empty dataframe to fill calculated values     
+    new = pd.DataFrame(index=df.index)
+    
+    #use if statement to obtain the first column in dataframe
+    if column_name == '':
+        
+        new['Observation'] = df['Close']
+           
+    else:
+        new['Observation'] = df[column_name]
+        
+    #create a series of datatframe only contains one column to avoid potential warning messages
+    rm = pd.DataFrame(index=new.index)
+    rm['rm'] = None
+    
+    ub = pd.DataFrame(index=new.index)
+    ub['ub'] = None
+    
+    lb = pd.DataFrame(index=new.index)
+    lb['lb'] = None
+    
+    #calculate corresponding value we need
+    rm['rm'] = new['Observation'].rolling(window).mean()
+    ub['ub'] = rm['rm'] + new['Observation'].rolling(window).std() * no_of_std
+    lb['lb'] = rm['rm'] - new['Observation'].rolling(window).std() * no_of_std
+    
+    
+#    for row in range(len(df)):
+#
+#        rm['rm'].iloc[row] = origin.loc[number-window+1:number+1,column_name].mean()
+#        
+#        ub['ub'].iloc[row] = origin.loc[number-window+1:number+1,column_name].mean() + no_of_std * origin.loc[number-window+1:number+1,column_name].std()
+#       
+#        lb['lb'].iloc[row] = origin.loc[number-window+1:number+1,column_name].mean() - no_of_std * origin.loc[number-window+1:number+1,column_name].std()
+#        
+#        number += 1
+    
+    #copy over columns into the empty dataframe  
+    new['RollingMean'] = rm['rm']
+    new['UpperBound'] = ub['ub']
+    new['LowerBound'] = lb['lb']
+#
+    #plot this graph
+    new[['Observation','RollingMean', 'UpperBound','LowerBound']].plot()
+    plt.title('Bollinger bands')
+    return new
+    
+
+def create_long_short_position(df):
+    '''This function will evaluate the data elements in the Observation 
+    column against the Bollinger bands in the columns UpperBound and LowerBound.'''
+    #create a new empty dataframe 
+    sig = pd.DataFrame(index = df.index)
+    
+    #use boolean statement to judge whether the owner should long or short 
+    sig['position'] = df['Observation'] > df['UpperBound']
+
+    sig['position'] = sig['position'] * 2 -1
+    
+    return sig
+    
+
+def calculate_long_short_returns(df,position,column_name = ''):
+    '''The function returns a pandas.DataFrame object containing the columns 
+    ['Market Return', 'Strategy Return', and 'Abnormal Return']'''
+    goal = pd.DataFrame(index = df.index, columns = ['Market Return', 'Strategy Return', 'Abnormal Return'])
+    new = pd.DataFrame(index = df.index)
+    
+    if column_name == '':
+        
+        new['Observation'] = df['Close']
+#        refer = origin['Close']
+        
+    else:
+        new['Observation'] = df[column_name]
+#        refer = origin[column_name]
+        
+    new['Position'] = position
+    
+    new['Market Return'] = np.log(new['Observation']/new['Observation'].shift(1))
+
+    new['Strategy Return'] = new['Market Return'] * new['Position']
+    
+    new['Abnormal Return'] = new['Strategy Return'] - new['Market Return']
+    
+    
+    goal['Market Return'] = new['Market Return']
+    goal['Strategy Return'] = new['Strategy Return']
+    goal['Abnormal Return'] = new['Abnormal Return']
+    
+    goal.plot()
+    plt.title('Market, Strategy, and Abnormal Returns')
+    return goal
+    
+def plot_cumulative_returns(df):
+    '''This function will create a plot of the cumulative return for each 
+    column in the parameter df, a pandas.DataFrame object with 
+    one or more series of returns.'''
+    
+    df[['Market Return','Strategy Return','Abnormal Return']].cumsum().plot()
+    plt.title('cumulative returns')
+    
+def compute_drawdown(prices):
+    '''The function returns a pandas.DataFrame object containing these columns:
+        price, which is a copy of the data in the parameter prices
+        prev_max, which contains the previous peak price before this price,
+        dd_dollars, which is the drawdown since the previous maximum price, measured in dollars,
+        dd_pct, which is the percentage decline since the previous maximum price.'''
+
+    result = pd.DataFrame(data = prices)
+    
+    #create empty column dataframe to copy over later 
+    prev_max = pd.DataFrame(index=result.index)
+    prev_max['prev_max'] = None
+    
+    #use loop to fulfill previous max price
+    for i in range(0,len(result)):
+        if i == 0:
+           prev_max['prev_max'].iloc[i] = result.iloc[0,0]
+        
+        else:
+            prev_max['prev_max'].iloc[i] = result.iloc[:i+1,0].max() 
+
+    #copy over results
+    result['prev_max'] = prev_max['prev_max']
+    
+    #calculate drop down in dollars
+    dd_dollars = pd.DataFrame(index=result.index)
+    dd_dollars['dd_dollars'] = result['prev_max'] - result.iloc[:,0]
+    result['dd_dollars'] = dd_dollars['dd_dollars']
+    
+    #calculate drop down in percentage 
+    dd_pct = pd.DataFrame(index=result.index)
+    dd_pct['dd_pct'] = 1 - result.iloc[:,0]/result['prev_max']
+    result['dd_pct'] = dd_pct['dd_pct']
+    
+    
+    return result
+
+def plot_drawdown(df):
+    '''This function will create and show two charts: 1 - The historical 
+    price and previous maximum price. 2 - The drawdown since previous 
+    maximum price as a percentage lost.'''
+    
+    #create plot 1
+    result = pd.DataFrame(index = df.index)
+    result['price'] = df.iloc[:,0]
+    result['prev_max'] = df['prev_max']
+    result.plot()
+    plt.title('Price and Previous Maximum')
+    
+    #create plot 2
+    result2 = pd.DataFrame(index = df.index)
+    result2['dd_pct'] = df['dd_pct']
+    result2.plot()
+    plt.title('Drawdown Percentage')
+
+
+def run_mc_drawdown_trials(init_price, years, r, sigma, trial_size, num_trials):
+    '''This function will use the MCStockSimulator from assignment 9 to 
+    run num_trials using MC simulations, and calculate the maximum drawdown 
+    for each trial.'''
+    #obtain MC simulator from assignment 9
+    sim = MCStockSimulator(init_price, years, r, sigma, trial_size)
+    
+    #create empty list to hold result from each trial
+    y=[]
+    for i in range(num_trials):
+        y += [sim.generate_simulated_stock_values()]
+        i += 1
+    
+    #create list to hold max drop down result for each trial
+    npy = np.array(y)
+    
+    max_dd = [compute_drawdown(element).iloc[:,3].max() for element in npy]
+
+    max_series = pd.Series(max_dd) 
+    figure2 = max_series.hist()    
+    return figure2
+
+    
+
+if __name__ == "__main__":
+    df = pd.read_csv('/Users/lighterain/Downloads/SPY.csv')
+    df.index = df['Date']
+    df = df.loc['2017-01-01':'2017-12-31'] #obtain only one-year slice
+    
+
+    bb = create_bollinger_bands(df, window = 10, no_of_std = 2, column_name = 'Adj Close')
+    
+    create_long_short_position(bb).plot()
+    plt.title('long-short position')
+    
+    position = create_long_short_position(bb)
+    
+    returns = calculate_long_short_returns(df, position, 'Adj Close')
+    plot_cumulative_returns(returns)
+    
+    
+    prices = pd.DataFrame(df.loc['2017-01-01':'2017-12-31','Adj Close'])
+    dd = compute_drawdown(prices)
+    dd.describe()
+    figure1 = plot_drawdown(dd)
+    print(figure1)
+    
+
+    
+    df['ret'] = np.log(df['Adj Close'] / df['Adj Close'].shift(1))
+    trial_size = 25
+    init_price = float(df['Adj Close'].sample())
+    r = df['ret'].mean()
+    sigma = df['ret'].std() * np.sqrt(trial_size)
+    years = 1
+    num_trials = 10
+#    run_mc_drawdown_trials(init_price,  years, r, sigma, trial_size, num_trials)
+    
+    
